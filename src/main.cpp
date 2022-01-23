@@ -133,7 +133,7 @@ byte wifi[] = {
 LiquidCrystal_I2C lcd(0x27, 16, 2);
 const unsigned long eventInterval = 1000;
 const unsigned long eventIntervalwifi = 1000;
-const unsigned long eventIntervalwifi_config = 1000;
+
 
 unsigned long previousTime = 0;
 unsigned long previousTime1 = 0;
@@ -145,35 +145,9 @@ bool mqttInit()
   // Inicia WiFi com o SSID e a senha
   WiFi.begin(WIFISSID, PASSWORD);
   // Loop até que o WiFi esteja conectado
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(2000);
-    lcd.home();
-    lcd.println("connecting to ");
-    lcd.setCursor(5, 1);
-    lcd.print("WiFi..");
-    delay(2000);
-    lcd.clear();
-  }
-  lcd.clear();
-  delay(2000);
-  // Exibe no monitor serial
-  lcd.home();
-  lcd.println("Connected to");
-  lcd.setCursor(5, 1);
-  lcd.println("network");
-  delay(2000);
-  lcd.clear();
+
   // Seta servidor com o broker e a porta
   client.setServer(SERVER, PORT);
-  // Conecta no ubidots com o Device id e o token, o password é informado como vazio
-  while (!client.connect(DEVICE_ID, TOKEN, ""))
-  {
-    Serial.println("MQTT - Connect error");
-    return false;
-  }
-  Serial.println("MQTT - Connect ok");
-  return true;
 }
 
 void reconnect()
@@ -211,12 +185,12 @@ bool sendValues(float temperature, float spo2)
   sprintf(json, "{\"%s\":{\"value\":%02.02f, \"context\":{\"temperature\":%02.02f,\"spo2\":%02.02f}}}", VARIABLE_LABEL_Spo2, spo2, temperature, spo2);
   if (!client.publish(TOPIC, json))
   {
-    dataSendStates = false;
+
     return false;
   }
 
   // Se tudo der certo retorna true
-  dataSendStates = true;
+
   return true;
 }
 
@@ -262,6 +236,7 @@ void lcdDisplay(int bpm, int spo2, int temp)
   }
   lcd.print(" ");
   lcd.print(bpm);
+  lcd.print("/bpm");
   lcd.setCursor(10, 0);
   lcd.print(spo2);
   lcd.print("%Spo");
@@ -272,11 +247,16 @@ void lcdDisplay(int bpm, int spo2, int temp)
   lcd.print(temp);
   lcd.printByte(1);
   lcd.print("C");
-  if(dataSendStates){
-  lcd.setCursor(15, 1);
-  lcd.printByte(4);
+  if (dataSendStates)
+  {
+    lcd.setCursor(15, 1);
+    lcd.printByte(4);
   }
-
+  else
+  {
+    lcd.setCursor(15, 1);
+    lcd.print(" ");
+  }
 }
 
 void setup()
@@ -286,23 +266,8 @@ void setup()
 
   lcd.init(); // initialize the lcd
   lcd.backlight();
-
-  // Wifi seup
- // lcd.println("Setting up mqtt...");
-  //delay(1000);
-  //lcd.clear();
-  // Inicializa mqtt (conecta o esp com o wifi, configura e conecta com o servidor da ubidots)
-  if (!mqttInit())
-  {
-    delay(3000);
-
-    lcd.println("Failed!");
-    ESP.restart();
-  }
-
-  //lcd.println("OK");
-
- // lcd.clear();
+  // wifi init
+  mqttInit();
 
   pinMode(AnalogPin, INPUT);
   pinMode(redLed, OUTPUT);
@@ -315,271 +280,23 @@ void setup()
 
 void loop()
 {
-  /*
-    digitalWrite(redLed, HIGH);
-    delay(20);
-    red_ADC = analogRead(AnalogPin);
-    digitalWrite(redLed, LOW);
-
-    digitalWrite(IRLed, HIGH);
-    delay(20);
-    IR_ADC = analogRead(AnalogPin);
-    digitalWrite(IRLed, LOW);
-
-    Serial.print(red_ADC);
-    Serial.print(",");
-    Serial.println(IR_ADC);
-  */
-
-  // READING RED LED
-
-  digitalWrite(redLed, HIGH);
-  digitalWrite(IRLed, LOW);
-  start = millis();
-  n = 0;
-  values = 0;
-  do
-  {
-    values += analogRead(AnalogPin);
-    n++;
-  } while (millis() < start + period); // it runs this cycle for "period" milliseconds
-
-  average = values / n; // average value filter for the graph and calculations
-  arrayRed[cycle] = average;
-
-  // READING IR LED
-
-  digitalWrite(redLed, LOW);
-  digitalWrite(IRLed, HIGH);
-  start = millis();
-  n = 0;
-  values = 0;
-  do
-  {
-    values += analogRead(AnalogPin);
-    n++;
-  } while (millis() < start + period); // it runs this cycle for "period" milliseconds
-
-  average = values / n; // average value filter for the graph and calculations
-  arrayIR[cycle] = average;
-
-  if (cycle == 99)
-  {
-    finger = HIGH;
-    /*
-        if (finger_cycle == 1) {
-          finger_detect = HIGH;
-          finger_cycle = 0;
-          Serial.print("RESET DETECT,");
-        }
-
-        if (finger_detect == LOW) {
-          finger_cycle++;
-          Serial.print("CYCLE INCREMENT,");
-        }
-
-        //FINGER IN
-        if (finger_detect == HIGH) {
-          Serial.println("entra finger high");
-          for (i = 0; i <= arraySize; i++) {
-            if (arrayRed[i] > 1020) {
-              finger = HIGH;
-              finger_detect = LOW;
-              Serial.println("FINGER IN");
-            }
-          }
-        }
-
-        //FINGER OUT
-        if (finger_detect == LOW) {
-          Serial.println("entra finger low");
-          for (i = 0; i <= arraySize; i++) {
-            if (arrayRed[i] == 0) {
-              finger = LOW;
-              finger_detect = LOW;
-              Serial.println("FINGER OUT");
-            }
-          }
-          Serial.println("sai finger low");
-        }
-    */
-    // BPM (beats per minute) && SPO2 calculation
-    if (finger == HIGH)
-    {
-      // do {
-      // AC_red:
-      for (i = 0; i < arraySize; i++)
-      {
-        if (arrayRed[i] > arrayRed[i - 1])
-          max_value_red = arrayRed[i];
-      }
-
-      // DC_red
-      for (k = 0; k < arraySize; k++)
-      {
-        if (arrayRed[k] < arrayRed[k - 1])
-          min_value_red = arrayRed[k];
-      }
-      DC_red = (max_value_red + min_value_red) / 2;
-      AC_red = max_value_red - min_value_red;
-
-      // AC_IR
-      for (j = 0; j < arraySize; j++)
-      {
-        if (arrayIR[j] > arrayIR[j - 1])
-          max_value_ir = arrayIR[j];
-      }
-
-      for (l = 0; l < arraySize; l++)
-      {
-        if (arrayIR[l] < arrayIR[l - 1])
-          min_value_ir = arrayIR[l];
-      }
-
-      DC_ir = (max_value_ir + min_value_ir) / 2;
-      AC_ir = max_value_ir - min_value_ir;
-
-      // bpm calculation
-      if (peak_detection_cycle == 1)
-      {
-
-        peak_max_ref = max_value_red;                              // highest sample peak detected
-        peak_ref_top = peak_max_ref + peak_max_ref * peakError;    // calculates the top of peak range detection
-        peak_ref_bottom = peak_max_ref - peak_max_ref * peakError; // calculates the bottom of peak range detection
-
-        for (i = 0; i < arraySize; i++) // cleans the array
-          arrayPeakValue[i] = 0;
-        peakCounter = 0; // resets peak counter
-        beats = 0;       // resets beats counter
-      }
-      if (peak_detection_cycle == 0)
-      {
-
-        for (i = 1; i <= arraySize; i++)
-        {
-          if (arrayRed[i] > arrayRed[i - 1])
-          {
-            rising = 1; // the signal is rising
-          }
-          if (arrayRed[i] < arrayRed[i - 1] && rising == 1) // if the signal starts dropping and it was rising before, we found a peak
-          {
-            arrayPeakValue[peakCounter] = arrayRed[i - 1]; // saves peak value
-            arrayPeakPosition[peakCounter] = i - 1;        // saves peak position of the array
-            peakCounter++;
-            rising = 0;
-          }
-        }
-        for (i = 0; i < arraySize; i++)
-        {
-          if ((arrayPeakValue[i] > peak_ref_bottom) && (arrayPeakValue[i] < peak_ref_top) && (beats < 2))
-          { // if the value of the peak is withing the estimated range and it didn't register 2 beats
-            beatsPosition[beats] = arrayPeakPosition[i];
-            beats++;
-          }
-        }
-        beatsPositionDiff = beatsPosition[1] - beatsPosition[0];
-        beatConversionTime = beatsPositionDiff * 2 * period;
-        // Serial.print("beatsPositionDiff: ");
-        // Serial.println(beatsPositionDiff);
-        // Serial.print("beatConversionTime: ");
-        // Serial.println(beatConversionTime);
-        bpm = (60 / beatConversionTime) * 1000;
-      }
-
-      // R = (AC_red / DC_red) / (AC_ir / DC_ir);
-      // Spo2 = a - b * R;
-      R = (AC_red * min_value_ir) / (AC_ir * min_value_red);
-      // Spo2 = (10.0002 * pow(R, 3)) - (52.887 * pow(R, 3)) + (26.871 * R) + 98.283;
-      Spo2 = -16.666666 * pow(R, 2) + 8.333333 * R + 100;
-      //} while (millis() < start + bpm_time);
-    }
-    /*
-        //Serial.print("min_value_red: ");
-        Serial.print(min_value_red);
-        Serial.print(",");
-        //Serial.print("min_value_ir: ");
-        Serial.print(min_value_ir);
-        Serial.print(",");
-        Serial.print(max_value_red);
-        Serial.print(",");
-        Serial.println(max_value_ir);
-        //Serial.print("DC_red: ");
-        //Serial.print(AC_red);
-        //Serial.print(",");
-        //Serial.print(AC_ir);
-        //Serial.print(",");
-        //Serial.print(DC_red);
-        //Serial.print(",");
-        //Serial.print("DC_ir: ");
-        //Serial.println(DC_ir);
-    */
-    if (Spo2 >= 70 && Spo2 <= 100)
-    {
-      Serial.print("SPO2: ");
-      Serial.println(Spo2);
-    }
-
-    // Serial.print("BPM: ");
-    // Serial.print(",");
-    // Serial.print(bpm);
-    // Serial.print(",");
-  }
-
-  // PRINTING
-  // Serial.print(arrayRed[cycle]);
-  // Serial.print(",");
-  // Serial.println(arrayIR[cycle]);
-  /* Serial.print(",");
-   Serial.println(R);
-
-   Serial.print(",");
-   Serial.println(cycle);*/
-  // CYCLE COUNT
-  cycle++;
-  if (cycle == arraySize)
-  {
-    cycle = 0;
-    if (peak_detection_cycle == 1)
-      peak_detection_cycle = 0;
-    else
-      peak_detection_cycle = 1;
-  }
-
-  // Vo=outADC*5/1023;
-  // Serial.print("Vo: ");
-  // Serial.println(Vo);
-
-  // delay(20);
-  // digitalWrite(redLed, LOW);
-
-  temperature = temperature_measure();
-
-  // lcd
-  lcdDisplay(89, Spo2, 12);
-
-  // Serial.println("Acabou cálculo");
-  // Serial.println();
-  // delay(1500);
-
-  // Se o esp foi desconectado do ubidots, tentamos reconectar
-  if (!client.connected())
-    reconnect();
-  // Lê a temperatura e umidade e exibimos no display passando uma flag (que sinaliza sucesso na leitura)
-
-  // Esperamos 2.5s antes de exibir o status do envio para dar efeito de pisca no display
   unsigned long currentTime = millis();
-
-  /* This is the event  */
-  if (currentTime - previousTime >= eventIntervalwifi)
+  if (currentTime - previousTime1 >= eventIntervalwifi)
   {
-    if (sendValues(Spo2, 20.3))
+    if (WiFi.status() == WL_CONNECTED && client.connect(DEVICE_ID, TOKEN, ""))
     {
-      Serial.println("Successfully sent data");
+      dataSendStates = true;
+      sendValues(60, 20.3);
     }
     else
     {
-      Serial.println("Failed to send sensor data");
+      dataSendStates = false;
     }
-    previousTime = currentTime;
+
+    previousTime1 = currentTime;
   }
+
+  lcdDisplay(10, 20, 30);
+
+  /* This is the event*/
 }
